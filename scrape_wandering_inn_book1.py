@@ -24,12 +24,10 @@ USER_AGENT = "Mozilla/5.0 (WanderingInnScraper/1.0; +https://wanderinginn.com/)"
 
 @dataclass
 class Chapter:
-    post_id: Optional[int]
     order: int
     title: str
     link: str
     content_html: str
-    comments_html: str
 
 
 class HTMLTextExtractor(HTMLParser):
@@ -103,45 +101,6 @@ def strip_scripts(html_content: str) -> str:
     return html_content
 
 
-def gather_comments(post_id: int, delay_s: float, max_comments: Optional[int]) -> str:
-    comments: List[dict] = []
-    page = 1
-    while True:
-        params = {
-            "post": post_id,
-            "per_page": 100,
-            "page": page,
-            "order": "asc",
-        }
-        url = f"{WP_API}/comments?{urllib.parse.urlencode(params)}"
-        try:
-            batch = fetch_json(url, delay_s)
-        except urllib.error.HTTPError as exc:
-            if exc.code == 400:
-                break
-            raise
-        if not batch:
-            break
-        comments.extend(batch)
-        if max_comments is not None and len(comments) >= max_comments:
-            comments = comments[:max_comments]
-            break
-        page += 1
-    if not comments:
-        return ""
-
-    items = []
-    for comment in comments:
-        author = html.escape(comment.get("author_name") or "Anonymous")
-        date = comment.get("date") or ""
-        content = strip_scripts(comment.get("content", {}).get("rendered", ""))
-        items.append(
-            f"<li><p><strong>{author}</strong> ({date})</p>{content}</li>"
-        )
-
-    return "<section><h2>Comments</h2><ol>" + "".join(items) + "</ol></section>"
-
-
 def parse_chapters(posts: Iterable[dict]) -> List[Chapter]:
     chapters: List[Chapter] = []
     for post in posts:
@@ -159,32 +118,14 @@ def parse_chapters(posts: Iterable[dict]) -> List[Chapter]:
         content = strip_scripts(post.get("content", {}).get("rendered", ""))
         chapters.append(
             Chapter(
-                post_id=post.get("id"),
                 order=order,
                 title=title,
                 link=link,
                 content_html=content,
-                comments_html="",
             )
         )
     chapters.sort(key=lambda ch: ch.order)
     return chapters
-
-
-def attach_comments(
-    chapters: List[Chapter],
-    delay_s: float,
-    include_comments: bool,
-    max_comments: Optional[int],
-) -> None:
-    if not include_comments:
-        return
-    total = len(chapters)
-    for idx, chapter in enumerate(chapters, start=1):
-        if chapter.post_id is None:
-            continue
-        print(f"Fetching comments for {idx}/{total}: {chapter.title}")
-        chapter.comments_html = gather_comments(chapter.post_id, delay_s, max_comments)
 
 
 def html_to_text(html_content: str) -> str:
@@ -198,8 +139,7 @@ def build_plain_text(chapters: List[Chapter]) -> str:
     for chapter in chapters:
         header = f"{chapter.title}\n{chapter.link}\n"
         body = html_to_text(chapter.content_html)
-        comments = html_to_text(chapter.comments_html) if chapter.comments_html else ""
-        parts.append("\n".join([header, body, comments]).strip())
+        parts.append("\n".join([header, body]).strip())
         parts.append("\n" + ("-" * 80) + "\n")
     return "\n".join(parts).strip() + "\n"
 
@@ -232,7 +172,7 @@ def write_epub(chapters: List[Chapter], output_path: str, book_title: str) -> No
     for index, chapter in enumerate(chapters, start=1):
         filename = f"chapter-{index:03}.xhtml"
         filepath = os.path.join(oebps_dir, filename)
-        body_html = chapter.content_html + chapter.comments_html
+        body_html = chapter.content_html
         xhtml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml">
@@ -325,10 +265,8 @@ def write_epub(chapters: List[Chapter], output_path: str, book_title: str) -> No
 
 def build_book(
     limit: Optional[int],
-    include_comments: bool,
     delay_s: float,
     output_dir: str,
-    max_comments: Optional[int],
 ) -> None:
     posts = fetch_posts("rw1-", delay_s)
     posts.extend(fetch_posts("vol1-foreword", delay_s))
@@ -337,7 +275,6 @@ def build_book(
     if limit:
         chapters = chapters[:limit]
     print(f"Found {len(chapters)} chapters to process.")
-    attach_comments(chapters, delay_s, include_comments, max_comments)
 
     if not chapters:
         raise RuntimeError("No chapters found. The search query may need updating.")
@@ -361,13 +298,6 @@ def build_book(
 def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--limit", type=int, default=None, help="Limit number of chapters for test runs")
-    parser.add_argument("--include-comments", action="store_true", help="Include WordPress comments")
-    parser.add_argument(
-        "--max-comments",
-        type=int,
-        default=None,
-        help="Limit comments per chapter (useful for small-scale tests)",
-    )
     parser.add_argument("--delay", type=float, default=0.5, help="Delay between requests in seconds")
     parser.add_argument("--output", default="output", help="Output directory")
     return parser.parse_args(argv)
@@ -375,7 +305,7 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
 
 def main(argv: Optional[List[str]] = None) -> int:
     args = parse_args(argv)
-    build_book(args.limit, args.include_comments, args.delay, args.output, args.max_comments)
+    build_book(args.limit, args.delay, args.output)
     return 0
 
 
