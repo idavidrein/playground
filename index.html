@@ -19,7 +19,14 @@
       padding: 20px;
       padding-top: env(safe-area-inset-top, 20px);
     }
-    h1 { font-size: 18px; text-align: center; opacity: 0.6; margin-bottom: 24px; }
+    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+    h1 { font-size: 18px; opacity: 0.6; }
+    .sync-status { font-size: 12px; opacity: 0.5; display: flex; align-items: center; gap: 6px; cursor: pointer; }
+    .sync-dot { width: 8px; height: 8px; border-radius: 50%; background: #666; }
+    .sync-dot.synced { background: #4ecca3; }
+    .sync-dot.syncing { background: #f0a500; animation: pulse 1s infinite; }
+    .sync-dot.error { background: #e94560; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
     .card {
       background: #16213e;
       border-radius: 16px;
@@ -125,10 +132,34 @@
       font-size: 16px;
       cursor: pointer;
     }
+    .modal input {
+      width: 100%;
+      padding: 14px;
+      border: 1px solid #ffffff30;
+      border-radius: 10px;
+      background: #0f2847;
+      color: #fff;
+      font-size: 14px;
+      margin-bottom: 12px;
+    }
+    .modal input::placeholder { color: #ffffff50; }
+    .modal p { font-size: 13px; opacity: 0.6; margin-bottom: 16px; line-height: 1.5; }
+    .modal .danger-btn {
+      background: transparent;
+      border: 1px solid #e94560;
+      color: #e94560;
+      margin-top: 8px;
+    }
   </style>
 </head>
 <body>
-  <h1>Sleep Tracker</h1>
+  <div class="header">
+    <h1>Sleep Tracker</h1>
+    <div class="sync-status" onclick="openSettings()">
+      <span class="sync-dot" id="sync-dot"></span>
+      <span id="sync-text">Not synced</span>
+    </div>
+  </div>
 
   <div class="card">
     <div class="label">Ate within 2hrs of bed?</div>
@@ -157,6 +188,7 @@
 
   <button class="export-btn" onclick="exportData()">Copy all data</button>
 
+  <!-- Edit Modal -->
   <div class="modal-overlay" id="modal" onclick="closeModal(event)">
     <div class="modal" onclick="event.stopPropagation()">
       <h3 id="modal-title"></h3>
@@ -178,8 +210,21 @@
     </div>
   </div>
 
+  <!-- Settings Modal -->
+  <div class="modal-overlay" id="settings-modal" onclick="closeSettings(event)">
+    <div class="modal" onclick="event.stopPropagation()">
+      <h3>Sync Settings</h3>
+      <p>Create a GitHub personal access token with "gist" scope at github.com/settings/tokens</p>
+      <input type="password" id="token-input" placeholder="ghp_xxxxxxxxxxxx">
+      <button class="close-btn" onclick="saveToken()">Save & Sync</button>
+      <button class="close-btn danger-btn" id="disconnect-btn" onclick="disconnect()" style="display:none">Disconnect</button>
+      <button class="close-btn" onclick="closeSettings()">Cancel</button>
+    </div>
+  </div>
+
   <script>
     let editingDate = null;
+    let syncTimeout = null;
 
     const toLocalDateStr = (d) => {
       return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -193,11 +238,114 @@
       return dt.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
     };
 
+    const getAllData = () => {
+      const data = {};
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key.startsWith('ate-') || key.startsWith('tired-')) {
+          data[key] = JSON.parse(localStorage.getItem(key));
+        }
+      }
+      return data;
+    };
+
+    const setAllData = (data) => {
+      Object.entries(data).forEach(([key, value]) => {
+        localStorage.setItem(key, JSON.stringify(value));
+      });
+    };
+
+    // Sync functions
+    const updateSyncStatus = (status, text) => {
+      const dot = document.getElementById('sync-dot');
+      const label = document.getElementById('sync-text');
+      dot.className = 'sync-dot ' + status;
+      label.textContent = text;
+    };
+
+    const syncToGist = async () => {
+      const token = localStorage.getItem('gh_token');
+      const gistId = localStorage.getItem('gh_gist_id');
+      if (!token) return;
+
+      updateSyncStatus('syncing', 'Syncing...');
+
+      const data = getAllData();
+      const content = JSON.stringify(data, null, 2);
+
+      try {
+        if (gistId) {
+          // Update existing gist
+          const res = await fetch(`https://api.github.com/gists/${gistId}`, {
+            method: 'PATCH',
+            headers: {
+              'Authorization': `token ${token}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              files: { 'sleep-tracker.json': { content } }
+            })
+          });
+          if (!res.ok) throw new Error('Failed to update');
+        } else {
+          // Create new gist
+          const res = await fetch('https://api.github.com/gists', {
+            method: 'POST',
+            headers: {
+              'Authorization': `token ${token}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              description: 'Sleep Tracker Data',
+              public: false,
+              files: { 'sleep-tracker.json': { content } }
+            })
+          });
+          if (!res.ok) throw new Error('Failed to create');
+          const gist = await res.json();
+          localStorage.setItem('gh_gist_id', gist.id);
+        }
+        updateSyncStatus('synced', 'Synced');
+      } catch (e) {
+        console.error(e);
+        updateSyncStatus('error', 'Sync failed');
+      }
+    };
+
+    const fetchFromGist = async () => {
+      const token = localStorage.getItem('gh_token');
+      const gistId = localStorage.getItem('gh_gist_id');
+      if (!token || !gistId) return;
+
+      try {
+        const res = await fetch(`https://api.github.com/gists/${gistId}`, {
+          headers: { 'Authorization': `token ${token}` }
+        });
+        if (!res.ok) return;
+        const gist = await res.json();
+        const content = gist.files['sleep-tracker.json']?.content;
+        if (content) {
+          const data = JSON.parse(content);
+          setAllData(data);
+          updateUI();
+        }
+        updateSyncStatus('synced', 'Synced');
+      } catch (e) {
+        console.error(e);
+      }
+    };
+
+    const scheduleSync = () => {
+      if (syncTimeout) clearTimeout(syncTimeout);
+      syncTimeout = setTimeout(syncToGist, 1000);
+    };
+
     const record = (type, value) => {
       const date = getToday();
       const key = `${type}-${date}`;
       localStorage.setItem(key, JSON.stringify({ value, time: Date.now() }));
       updateUI();
+      scheduleSync();
     };
 
     const recordModal = (type, value) => {
@@ -206,6 +354,7 @@
       localStorage.setItem(key, JSON.stringify({ value, time: Date.now() }));
       updateModalUI();
       updateUI();
+      scheduleSync();
     };
 
     const getData = (type, date) => {
@@ -221,7 +370,6 @@
     const updateUI = () => {
       const today = getToday();
 
-      // Set date labels
       document.getElementById('ate-date').textContent = `For tonight — ${formatDate(today)}`;
       document.getElementById('tired-date').textContent = `For this morning — ${formatDate(today)}`;
 
@@ -244,7 +392,6 @@
         }
       });
 
-      // History
       const list = document.getElementById('history-list');
       list.innerHTML = '';
       for (let i = 1; i <= 7; i++) {
@@ -265,6 +412,12 @@
           </div>
         `;
         list.appendChild(row);
+      }
+
+      // Update sync status display
+      const token = localStorage.getItem('gh_token');
+      if (!token) {
+        updateSyncStatus('', 'Tap to sync');
       }
     };
 
@@ -303,14 +456,35 @@
       editingDate = null;
     };
 
+    const openSettings = () => {
+      const token = localStorage.getItem('gh_token');
+      document.getElementById('token-input').value = token || '';
+      document.getElementById('disconnect-btn').style.display = token ? 'block' : 'none';
+      document.getElementById('settings-modal').classList.add('active');
+    };
+
+    const closeSettings = (e) => {
+      if (e && e.target !== e.currentTarget) return;
+      document.getElementById('settings-modal').classList.remove('active');
+    };
+
+    const saveToken = async () => {
+      const token = document.getElementById('token-input').value.trim();
+      if (!token) return;
+      localStorage.setItem('gh_token', token);
+      closeSettings();
+      await syncToGist();
+    };
+
+    const disconnect = () => {
+      localStorage.removeItem('gh_token');
+      localStorage.removeItem('gh_gist_id');
+      updateSyncStatus('', 'Tap to sync');
+      closeSettings();
+    };
+
     const exportData = async () => {
-      const data = {};
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (key.startsWith('ate-') || key.startsWith('tired-')) {
-          data[key] = JSON.parse(localStorage.getItem(key));
-        }
-      }
+      const data = getAllData();
       const json = JSON.stringify(data, null, 2);
       try {
         await navigator.clipboard.writeText(json);
@@ -323,7 +497,9 @@
       }
     };
 
+    // Init
     updateUI();
+    fetchFromGist();
 
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('sw.js');
