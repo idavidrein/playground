@@ -26,7 +26,8 @@
       padding: 20px;
       margin-bottom: 16px;
     }
-    .label { font-size: 15px; opacity: 0.7; margin-bottom: 12px; }
+    .label { font-size: 15px; opacity: 0.7; margin-bottom: 4px; }
+    .date-label { font-size: 13px; opacity: 0.5; margin-bottom: 12px; }
     .buttons { display: flex; gap: 12px; }
     .btn {
       flex: 1;
@@ -55,21 +56,62 @@
     .history-row {
       display: flex;
       justify-content: space-between;
-      padding: 10px 0;
-      border-bottom: 1px solid #ffffff15;
+      align-items: center;
+      padding: 14px 12px;
+      margin-bottom: 8px;
+      background: #16213e;
+      border-radius: 10px;
       font-size: 14px;
+      cursor: pointer;
+      transition: background 0.2s;
     }
+    .history-row:active { background: #1f2b4d; }
     .history-row span { opacity: 0.7; }
+    .dots { display: flex; align-items: center; gap: 12px; }
+    .dot-group { display: flex; align-items: center; gap: 4px; font-size: 12px; opacity: 0.6; }
     .dot {
       display: inline-block;
-      width: 10px;
-      height: 10px;
+      width: 12px;
+      height: 12px;
       border-radius: 50%;
-      margin-left: 8px;
     }
     .dot.yes { background: #e94560; }
     .dot.no { background: #4ecca3; }
     .dot.none { background: #333; }
+
+    /* Modal */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.8);
+      z-index: 100;
+      justify-content: center;
+      align-items: center;
+      padding: 20px;
+    }
+    .modal-overlay.active { display: flex; }
+    .modal {
+      background: #16213e;
+      border-radius: 20px;
+      padding: 24px;
+      width: 100%;
+      max-width: 340px;
+    }
+    .modal h3 { font-size: 18px; margin-bottom: 20px; text-align: center; }
+    .modal .card { background: #0f2847; margin-bottom: 12px; padding: 16px; }
+    .modal .btn { padding: 20px 0; font-size: 18px; }
+    .modal .close-btn {
+      width: 100%;
+      padding: 16px;
+      margin-top: 12px;
+      background: #333;
+      color: #fff;
+      border: none;
+      border-radius: 12px;
+      font-size: 16px;
+      cursor: pointer;
+    }
   </style>
 </head>
 <body>
@@ -77,6 +119,7 @@
 
   <div class="card">
     <div class="label">Ate within 2hrs of bed?</div>
+    <div class="date-label" id="ate-date"></div>
     <div class="buttons">
       <button class="btn yes" onclick="record('ate', true)">Yes</button>
       <button class="btn no" onclick="record('ate', false)">No</button>
@@ -86,6 +129,7 @@
 
   <div class="card">
     <div class="label">Tired this morning?</div>
+    <div class="date-label" id="tired-date"></div>
     <div class="buttons">
       <button class="btn yes" onclick="record('tired', true)">Yes</button>
       <button class="btn no" onclick="record('tired', false)">No</button>
@@ -94,21 +138,53 @@
   </div>
 
   <div class="history">
-    <h2>Last 7 days</h2>
+    <h2>Previous days (tap to edit)</h2>
     <div id="history-list"></div>
   </div>
 
+  <div class="modal-overlay" id="modal" onclick="closeModal(event)">
+    <div class="modal" onclick="event.stopPropagation()">
+      <h3 id="modal-title"></h3>
+      <div class="card">
+        <div class="label">Ate within 2hrs of bed?</div>
+        <div class="buttons">
+          <button class="btn yes" id="modal-ate-yes" onclick="recordModal('ate', true)">Yes</button>
+          <button class="btn no" id="modal-ate-no" onclick="recordModal('ate', false)">No</button>
+        </div>
+      </div>
+      <div class="card">
+        <div class="label">Tired that morning?</div>
+        <div class="buttons">
+          <button class="btn yes" id="modal-tired-yes" onclick="recordModal('tired', true)">Yes</button>
+          <button class="btn no" id="modal-tired-no" onclick="recordModal('tired', false)">No</button>
+        </div>
+      </div>
+      <button class="close-btn" onclick="closeModal()">Done</button>
+    </div>
+  </div>
+
   <script>
-    const getKey = (type) => {
-      const d = new Date();
-      // "ate" logs for tonight, "tired" logs for this morning
-      const date = d.toISOString().split('T')[0];
-      return `${type}-${date}`;
+    let editingDate = null;
+
+    const getToday = () => new Date().toISOString().split('T')[0];
+
+    const formatDate = (date) => {
+      const d = new Date(date + 'T12:00:00');
+      return d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
     };
 
     const record = (type, value) => {
-      const key = getKey(type);
+      const date = getToday();
+      const key = `${type}-${date}`;
       localStorage.setItem(key, JSON.stringify({ value, time: Date.now() }));
+      updateUI();
+    };
+
+    const recordModal = (type, value) => {
+      if (!editingDate) return;
+      const key = `${type}-${editingDate}`;
+      localStorage.setItem(key, JSON.stringify({ value, time: Date.now() }));
+      updateModalUI();
       updateUI();
     };
 
@@ -123,26 +199,25 @@
     };
 
     const updateUI = () => {
-      const today = new Date().toISOString().split('T')[0];
+      const today = getToday();
+
+      // Set date labels
+      document.getElementById('ate-date').textContent = `For tonight — ${formatDate(today)}`;
+      document.getElementById('tired-date').textContent = `For this morning — ${formatDate(today)}`;
 
       ['ate', 'tired'].forEach(type => {
         const data = getData(type, today);
         const status = document.getElementById(`${type}-status`);
         const btns = status.parentElement.querySelectorAll('.btn');
 
-        btns.forEach(btn => {
-          btn.classList.remove('selected', 'faded');
-        });
+        btns.forEach(btn => btn.classList.remove('selected', 'faded'));
 
         if (data) {
           status.textContent = `Logged at ${formatTime(data.time)}`;
           btns.forEach(btn => {
             const isYes = btn.classList.contains('yes');
-            if (isYes === data.value) {
-              btn.classList.add('selected');
-            } else {
-              btn.classList.add('faded');
-            }
+            if (isYes === data.value) btn.classList.add('selected');
+            else btn.classList.add('faded');
           });
         } else {
           status.textContent = '';
@@ -161,15 +236,51 @@
 
         const row = document.createElement('div');
         row.className = 'history-row';
+        row.onclick = () => openModal(date);
         row.innerHTML = `
-          <span>${d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}</span>
-          <span>
-            Ate<span class="dot ${ate ? (ate.value ? 'yes' : 'no') : 'none'}"></span>
-            Tired<span class="dot ${tired ? (tired.value ? 'yes' : 'no') : 'none'}"></span>
-          </span>
+          <span>${formatDate(date)}</span>
+          <div class="dots">
+            <div class="dot-group">Ate <span class="dot ${ate ? (ate.value ? 'yes' : 'no') : 'none'}"></span></div>
+            <div class="dot-group">Tired <span class="dot ${tired ? (tired.value ? 'yes' : 'no') : 'none'}"></span></div>
+          </div>
         `;
         list.appendChild(row);
       }
+    };
+
+    const openModal = (date) => {
+      editingDate = date;
+      document.getElementById('modal-title').textContent = formatDate(date);
+      document.getElementById('modal').classList.add('active');
+      updateModalUI();
+    };
+
+    const updateModalUI = () => {
+      if (!editingDate) return;
+
+      ['ate', 'tired'].forEach(type => {
+        const data = getData(type, editingDate);
+        const yesBtn = document.getElementById(`modal-${type}-yes`);
+        const noBtn = document.getElementById(`modal-${type}-no`);
+
+        [yesBtn, noBtn].forEach(btn => btn.classList.remove('selected', 'faded'));
+
+        if (data) {
+          if (data.value) {
+            yesBtn.classList.add('selected');
+            noBtn.classList.add('faded');
+          } else {
+            noBtn.classList.add('selected');
+            yesBtn.classList.add('faded');
+          }
+        }
+      });
+    };
+
+    const closeModal = (e) => {
+      if (e && e.target !== e.currentTarget) return;
+      document.getElementById('modal').classList.remove('active');
+      editingDate = null;
     };
 
     updateUI();
