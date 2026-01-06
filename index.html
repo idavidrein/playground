@@ -78,6 +78,19 @@
     .dot.yes { background: #e94560; }
     .dot.no { background: #4ecca3; }
     .dot.none { background: #333; }
+    .export-btn {
+      width: 100%;
+      padding: 14px;
+      margin-top: 24px;
+      background: transparent;
+      border: 1px solid #ffffff30;
+      color: #fff;
+      opacity: 0.5;
+      border-radius: 10px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    .export-btn:active { opacity: 0.8; }
 
     /* Modal */
     .modal-overlay {
@@ -141,6 +154,8 @@
     <h2>Previous days (tap to edit)</h2>
     <div id="history-list"></div>
   </div>
+
+  <button class="export-btn" onclick="exportData()">Copy all data</button>
 
   <div class="modal-overlay" id="modal" onclick="closeModal(event)">
     <div class="modal" onclick="event.stopPropagation()">
@@ -286,6 +301,26 @@
       if (e && e.target !== e.currentTarget) return;
       document.getElementById('modal').classList.remove('active');
       editingDate = null;
+    };
+
+    const exportData = async () => {
+      const data = {};
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key.startsWith('ate-') || key.startsWith('tired-')) {
+          data[key] = JSON.parse(localStorage.getItem(key));
+        }
+      }
+      const json = JSON.stringify(data, null, 2);
+      try {
+        await navigator.clipboard.writeText(json);
+        document.querySelector('.export-btn').textContent = 'Copied!';
+        setTimeout(() => {
+          document.querySelector('.export-btn').textContent = 'Copy all data';
+        }, 2000);
+      } catch (e) {
+        alert(json);
+      }
     };
 
     updateUI();
