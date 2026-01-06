@@ -2,29 +2,178 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black">
-  <meta name="apple-mobile-web-app-title" content="Hello PWA">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Sleep">
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icon-192.png">
-  <title>Hello PWA</title>
+  <title>Sleep Tracker</title>
   <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      height: 100vh;
-      margin: 0;
-      background: #f0f0f0;
+      background: #1a1a2e;
+      color: #fff;
+      min-height: 100vh;
+      padding: 20px;
+      padding-top: env(safe-area-inset-top, 20px);
     }
-    h1 { color: #333; }
+    h1 { font-size: 18px; text-align: center; opacity: 0.6; margin-bottom: 24px; }
+    .card {
+      background: #16213e;
+      border-radius: 16px;
+      padding: 20px;
+      margin-bottom: 16px;
+    }
+    .label { font-size: 15px; opacity: 0.7; margin-bottom: 12px; }
+    .buttons { display: flex; gap: 12px; }
+    .btn {
+      flex: 1;
+      padding: 28px 0;
+      font-size: 22px;
+      font-weight: 600;
+      border: none;
+      border-radius: 12px;
+      cursor: pointer;
+      transition: transform 0.1s, opacity 0.2s;
+    }
+    .btn:active { transform: scale(0.96); }
+    .btn.yes { background: #e94560; color: #fff; }
+    .btn.no { background: #0f3460; color: #fff; }
+    .btn.selected { outline: 3px solid #fff; }
+    .btn.faded { opacity: 0.4; }
+    .status {
+      text-align: center;
+      font-size: 13px;
+      opacity: 0.5;
+      margin-top: 8px;
+      min-height: 18px;
+    }
+    .history { margin-top: 24px; }
+    .history h2 { font-size: 14px; opacity: 0.5; margin-bottom: 12px; }
+    .history-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 10px 0;
+      border-bottom: 1px solid #ffffff15;
+      font-size: 14px;
+    }
+    .history-row span { opacity: 0.7; }
+    .dot {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      margin-left: 8px;
+    }
+    .dot.yes { background: #e94560; }
+    .dot.no { background: #4ecca3; }
+    .dot.none { background: #333; }
   </style>
 </head>
 <body>
-  <h1>Hello World!</h1>
+  <h1>Sleep Tracker</h1>
+
+  <div class="card">
+    <div class="label">Ate within 2hrs of bed?</div>
+    <div class="buttons">
+      <button class="btn yes" onclick="record('ate', true)">Yes</button>
+      <button class="btn no" onclick="record('ate', false)">No</button>
+    </div>
+    <div class="status" id="ate-status"></div>
+  </div>
+
+  <div class="card">
+    <div class="label">Tired this morning?</div>
+    <div class="buttons">
+      <button class="btn yes" onclick="record('tired', true)">Yes</button>
+      <button class="btn no" onclick="record('tired', false)">No</button>
+    </div>
+    <div class="status" id="tired-status"></div>
+  </div>
+
+  <div class="history">
+    <h2>Last 7 days</h2>
+    <div id="history-list"></div>
+  </div>
+
   <script>
+    const getKey = (type) => {
+      const d = new Date();
+      // "ate" logs for tonight, "tired" logs for this morning
+      const date = d.toISOString().split('T')[0];
+      return `${type}-${date}`;
+    };
+
+    const record = (type, value) => {
+      const key = getKey(type);
+      localStorage.setItem(key, JSON.stringify({ value, time: Date.now() }));
+      updateUI();
+    };
+
+    const getData = (type, date) => {
+      const key = `${type}-${date}`;
+      const data = localStorage.getItem(key);
+      return data ? JSON.parse(data) : null;
+    };
+
+    const formatTime = (ts) => {
+      return new Date(ts).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    };
+
+    const updateUI = () => {
+      const today = new Date().toISOString().split('T')[0];
+
+      ['ate', 'tired'].forEach(type => {
+        const data = getData(type, today);
+        const status = document.getElementById(`${type}-status`);
+        const btns = status.parentElement.querySelectorAll('.btn');
+
+        btns.forEach(btn => {
+          btn.classList.remove('selected', 'faded');
+        });
+
+        if (data) {
+          status.textContent = `Logged at ${formatTime(data.time)}`;
+          btns.forEach(btn => {
+            const isYes = btn.classList.contains('yes');
+            if (isYes === data.value) {
+              btn.classList.add('selected');
+            } else {
+              btn.classList.add('faded');
+            }
+          });
+        } else {
+          status.textContent = '';
+        }
+      });
+
+      // History
+      const list = document.getElementById('history-list');
+      list.innerHTML = '';
+      for (let i = 1; i <= 7; i++) {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        const date = d.toISOString().split('T')[0];
+        const ate = getData('ate', date);
+        const tired = getData('tired', date);
+
+        const row = document.createElement('div');
+        row.className = 'history-row';
+        row.innerHTML = `
+          <span>${d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}</span>
+          <span>
+            Ate<span class="dot ${ate ? (ate.value ? 'yes' : 'no') : 'none'}"></span>
+            Tired<span class="dot ${tired ? (tired.value ? 'yes' : 'no') : 'none'}"></span>
+          </span>
+        `;
+        list.appendChild(row);
+      }
+    };
+
+    updateUI();
+
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('sw.js');
     }
