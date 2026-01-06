@@ -166,11 +166,16 @@
   <script>
     let editingDate = null;
 
-    const getToday = () => new Date().toISOString().split('T')[0];
+    const toLocalDateStr = (d) => {
+      return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    };
+
+    const getToday = () => toLocalDateStr(new Date());
 
     const formatDate = (date) => {
-      const d = new Date(date + 'T12:00:00');
-      return d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+      const [y, m, d] = date.split('-').map(Number);
+      const dt = new Date(y, m - 1, d);
+      return dt.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
     };
 
     const record = (type, value) => {
@@ -230,7 +235,7 @@
       for (let i = 1; i <= 7; i++) {
         const d = new Date();
         d.setDate(d.getDate() - i);
-        const date = d.toISOString().split('T')[0];
+        const date = toLocalDateStr(d);
         const ate = getData('ate', date);
         const tired = getData('tired', date);
 
