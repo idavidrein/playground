@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Sleep">
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <title>Sleep Tracker</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      background: #1a1a2e;
+      color: #fff;
+      min-height: 100vh;
+      padding: 20px;
+      padding-top: env(safe-area-inset-top, 20px);
+    }
+    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+    h1 { font-size: 18px; opacity: 0.6; }
+    .sync-status { font-size: 12px; opacity: 0.5; display: flex; align-items: center; gap: 6px; cursor: pointer; }
+    .sync-dot { width: 8px; height: 8px; border-radius: 50%; background: #666; }
+    .sync-dot.synced { background: #4ecca3; }
+    .sync-dot.syncing { background: #f0a500; animation: pulse 1s infinite; }
+    .sync-dot.error { background: #e94560; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+    .card {
+      background: #16213e;
+      border-radius: 16px;
+      padding: 20px;
+      margin-bottom: 16px;
+    }
+    .label { font-size: 15px; opacity: 0.7; margin-bottom: 4px; }
+    .date-label { font-size: 13px; opacity: 0.5; margin-bottom: 12px; }
+    .buttons { display: flex; gap: 12px; }
+    .btn {
+      flex: 1;
+      padding: 28px 0;
+      font-size: 22px;
+      font-weight: 600;
+      border: none;
+      border-radius: 12px;
+      cursor: pointer;
+      transition: transform 0.1s, opacity 0.2s;
+    }
+    .btn:active { transform: scale(0.96); }
+    .btn.yes { background: #e94560; color: #fff; }
+    .btn.no { background: #0f3460; color: #fff; }
+    .btn.selected { outline: 3px solid #fff; }
+    .btn.faded { opacity: 0.4; }
+    .status {
+      text-align: center;
+      font-size: 13px;
+      opacity: 0.5;
+      margin-top: 8px;
+      min-height: 18px;
+    }
+    .history { margin-top: 24px; }
+    .history h2 { font-size: 14px; opacity: 0.5; margin-bottom: 12px; }
+    .history-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 14px 12px;
+      margin-bottom: 8px;
+      background: #16213e;
+      border-radius: 10px;
+      font-size: 14px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .history-row:active { background: #1f2b4d; }
+    .history-label { opacity: 0.7; }
+    .history-label small { display: block; font-size: 11px; opacity: 0.6; margin-top: 2px; }
+    .dots { display: flex; align-items: center; gap: 12px; }
+    .dot-group { display: flex; align-items: center; gap: 4px; font-size: 12px; opacity: 0.6; }
+    .dot {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+    }
+    .dot.yes { background: #e94560; }
+    .dot.no { background: #4ecca3; }
+    .dot.none { background: #333; }
+    .export-btn {
+      width: 100%;
+      padding: 14px;
+      margin-top: 24px;
+      background: transparent;
+      border: 1px solid #ffffff30;
+      color: #fff;
+      opacity: 0.5;
+      border-radius: 10px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    .export-btn:active { opacity: 0.8; }
+
+    /* Modal */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.8);
+      z-index: 100;
+      justify-content: center;
+      align-items: center;
+      padding: 20px;
+    }
+    .modal-overlay.active { display: flex; }
+    .modal {
+      background: #16213e;
+      border-radius: 20px;
+      padding: 24px;
+      width: 100%;
+      max-width: 340px;
+      max-height: 90vh;
+      overflow-y: auto;
+    }
+    .modal h3 { font-size: 18px; margin-bottom: 8px; text-align: center; }
+    .modal .subtitle { font-size: 12px; opacity: 0.5; text-align: center; margin-bottom: 16px; }
+    .modal .card { background: #0f2847; margin-bottom: 12px; padding: 16px; }
+    .modal .btn { padding: 20px 0; font-size: 18px; }
+    .modal .close-btn {
+      width: 100%;
+      padding: 16px;
+      margin-top: 12px;
+      background: #333;
+      color: #fff;
+      border: none;
+      border-radius: 12px;
+      font-size: 16px;
+      cursor: pointer;
+    }
+    .modal input {
+      width: 100%;
+      padding: 14px;
+      border: 1px solid #ffffff30;
+      border-radius: 10px;
+      background: #0f2847;
+      color: #fff;
+      font-size: 14px;
+      margin-bottom: 12px;
+    }
+    .modal input::placeholder { color: #ffffff50; }
+    .modal p { font-size: 13px; opacity: 0.6; margin-bottom: 16px; line-height: 1.5; }
+    .modal a { color: #4ecca3; }
+    .modal .danger-btn {
+      background: transparent;
+      border: 1px solid #e94560;
+      color: #e94560;
+      margin-top: 8px;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>Sleep Tracker</h1>
+    <div class="sync-status" onclick="openSettings()">
+      <span class="sync-dot" id="sync-dot"></span>
+      <span id="sync-text">Not synced</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="label" id="ate-label">Ate within 2hrs of bed?</div>
+    <div class="date-label" id="ate-date"></div>
+    <div class="buttons">
+      <button class="btn yes" onclick="recordAte(true)">Yes</button>
+      <button class="btn no" onclick="recordAte(false)">No</button>
+    </div>
+    <div class="status" id="ate-status"></div>
+  </div>
+
+  <div class="card">
+    <div class="label" id="tired-label">Tired this morning?</div>
+    <div class="date-label" id="tired-date"></div>
+    <div class="buttons">
+      <button class="btn yes" onclick="recordTired(true)">Yes</button>
+      <button class="btn no" onclick="recordTired(false)">No</button>
+    </div>
+    <div class="status" id="tired-status"></div>
+  </div>
+
+  <div class="history">
+    <h2>Sleep cycles (tap to edit)</h2>
+    <div id="history-list"></div>
+  </div>
+
+  <button class="export-btn" onclick="exportData()">Copy all data</button>
+
+  <!-- Edit Modal -->
+  <div class="modal-overlay" id="modal" onclick="closeModal(event)">
+    <div class="modal" onclick="event.stopPropagation()">
+      <h3 id="modal-title"></h3>
+      <div class="subtitle" id="modal-subtitle"></div>
+      <div class="card">
+        <div class="label" id="modal-ate-label">Ate within 2hrs of bed?</div>
+        <div class="buttons">
+          <button class="btn yes" id="modal-ate-yes" onclick="recordModalAte(true)">Yes</button>
+          <button class="btn no" id="modal-ate-no" onclick="recordModalAte(false)">No</button>
+        </div>
+      </div>
+      <div class="card">
+        <div class="label" id="modal-tired-label">Tired next morning?</div>
+        <div class="buttons">
+          <button class="btn yes" id="modal-tired-yes" onclick="recordModalTired(true)">Yes</button>
+          <button class="btn no" id="modal-tired-no" onclick="recordModalTired(false)">No</button>
+        </div>
+      </div>
+      <button class="close-btn" onclick="closeModal()">Done</button>
+    </div>
+  </div>
+
+  <!-- Settings Modal -->
+  <div class="modal-overlay" id="settings-modal" onclick="closeSettings(event)">
+    <div class="modal" onclick="event.stopPropagation()">
+      <h3>Sync Settings</h3>
+      <p>
+        <a href="https://github.com/settings/tokens/new?scopes=gist&description=Sleep%20Tracker" target="_blank">Create a GitHub token</a>
+        (select only "gist" scope), then paste it below:
+      </p>
+      <input type="password" id="token-input" placeholder="ghp_xxxxxxxxxxxx">
+      <button class="close-btn" onclick="saveToken()">Save & Sync</button>
+      <button class="close-btn danger-btn" id="disconnect-btn" onclick="disconnect()" style="display:none">Disconnect</button>
+      <button class="close-btn" onclick="closeSettings()">Cancel</button>
+    </div>
+  </div>
+
+  <script>
+    // Each sleep cycle = one night + the following morning
+    // "Mon night → Tue morning" means: ate-Mon correlates with tired-Tue
+    // Data model: ate-YYYY-MM-DD = ate late on that night, tired-YYYY-MM-DD = tired that morning
+
+    let editingNightDate = null; // The night date for the cycle being edited
+    let syncTimeout = null;
+
+    const toLocalDateStr = (d) => {
+      return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    };
+
+    const addDays = (dateStr, days) => {
+      const [y, m, d] = dateStr.split('-').map(Number);
+      const dt = new Date(y, m - 1, d);
+      dt.setDate(dt.getDate() + days);
+      return toLocalDateStr(dt);
+    };
+
+    const getToday = () => toLocalDateStr(new Date());
+    const getYesterday = () => addDays(getToday(), -1);
+
+    const formatDateShort = (date) => {
+      const [y, m, d] = date.split('-').map(Number);
+      const dt = new Date(y, m - 1, d);
+      return dt.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+    };
+
+    const formatWeekday = (date) => {
+      const [y, m, d] = date.split('-').map(Number);
+      const dt = new Date(y, m - 1, d);
+      return dt.toLocaleDateString([], { weekday: 'short' });
+    };
+
+    const getAllData = () => {
+      const data = {};
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key.startsWith('ate-') || key.startsWith('tired-')) {
+          data[key] = JSON.parse(localStorage.getItem(key));
+        }
+      }
+      return data;
+    };
+
+    const setAllData = (data) => {
+      Object.entries(data).forEach(([key, value]) => {
+        localStorage.setItem(key, JSON.stringify(value));
+      });
+    };
+
+    // Sync functions
+    const updateSyncStatus = (status, text) => {
+      const dot = document.getElementById('sync-dot');
+      const label = document.getElementById('sync-text');
+      dot.className = 'sync-dot ' + status;
+      label.textContent = text;
+    };
+
+    const syncToGist = async () => {
+      const token = localStorage.getItem('gh_token');
+      const gistId = localStorage.getItem('gh_gist_id');
+      if (!token) return;
+
+      updateSyncStatus('syncing', 'Syncing...');
+
+      const data = getAllData();
+      const content = JSON.stringify(data, null, 2);
+
+      try {
+        if (gistId) {
+          const res = await fetch(`https://api.github.com/gists/${gistId}`, {
+            method: 'PATCH',
+            headers: {
+              'Authorization': `token ${token}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              files: { 'sleep-tracker.json': { content } }
+            })
+          });
+          if (!res.ok) throw new Error('Failed to update');
+        } else {
+          const res = await fetch('https://api.github.com/gists', {
+            method: 'POST',
+            headers: {
+              'Authorization': `token ${token}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              description: 'Sleep Tracker Data',
+              public: false,
+              files: { 'sleep-tracker.json': { content } }
+            })
+          });
+          if (!res.ok) throw new Error('Failed to create');
+          const gist = await res.json();
+          localStorage.setItem('gh_gist_id', gist.id);
+        }
+        updateSyncStatus('synced', 'Synced');
+      } catch (e) {
+        console.error(e);
+        updateSyncStatus('error', 'Sync failed');
+      }
+    };
+
+    const fetchFromGist = async () => {
+      const token = localStorage.getItem('gh_token');
+      const gistId = localStorage.getItem('gh_gist_id');
+      if (!token || !gistId) return;
+
+      try {
+        const res = await fetch(`https://api.github.com/gists/${gistId}`, {
+          headers: { 'Authorization': `token ${token}` }
+        });
+        if (!res.ok) return;
+        const gist = await res.json();
+        const content = gist.files['sleep-tracker.json']?.content;
+        if (content) {
+          const data = JSON.parse(content);
+          setAllData(data);
+          updateUI();
+        }
+        updateSyncStatus('synced', 'Synced');
+      } catch (e) {
+        console.error(e);
+      }
+    };
+
+    const scheduleSync = () => {
+      if (syncTimeout) clearTimeout(syncTimeout);
+      syncTimeout = setTimeout(syncToGist, 1000);
+    };
+
+    // Determine which dates to show based on current time
+    const getCurrentDates = () => {
+      const now = new Date();
+      const hour = now.getHours();
+      const today = getToday();
+      const yesterday = getYesterday();
+
+      // Before noon: you're logging about last night's sleep cycle
+      // After noon: you're logging about tonight's upcoming sleep cycle
+      if (hour < 12) {
+        return {
+          ateDate: yesterday,      // Last night
+          tiredDate: today,        // This morning
+          ateLabel: 'Last night',
+          tiredLabel: 'This morning'
+        };
+      } else {
+        return {
+          ateDate: today,          // Tonight
+          tiredDate: today,        // This morning (already happened)
+          ateLabel: 'Tonight',
+          tiredLabel: 'This morning'
+        };
+      }
+    };
+
+    const recordAte = (value) => {
+      const { ateDate } = getCurrentDates();
+      localStorage.setItem(`ate-${ateDate}`, JSON.stringify({ value, time: Date.now() }));
+      updateUI();
+      scheduleSync();
+    };
+
+    const recordTired = (value) => {
+      const { tiredDate } = getCurrentDates();
+      localStorage.setItem(`tired-${tiredDate}`, JSON.stringify({ value, time: Date.now() }));
+      updateUI();
+      scheduleSync();
+    };
+
+    const recordModalAte = (value) => {
+      if (!editingNightDate) return;
+      localStorage.setItem(`ate-${editingNightDate}`, JSON.stringify({ value, time: Date.now() }));
+      updateModalUI();
+      updateUI();
+      scheduleSync();
+    };
+
+    const recordModalTired = (value) => {
+      if (!editingNightDate) return;
+      const morningDate = addDays(editingNightDate, 1);
+      localStorage.setItem(`tired-${morningDate}`, JSON.stringify({ value, time: Date.now() }));
+      updateModalUI();
+      updateUI();
+      scheduleSync();
+    };
+
+    const getData = (type, date) => {
+      const key = `${type}-${date}`;
+      const data = localStorage.getItem(key);
+      return data ? JSON.parse(data) : null;
+    };
+
+    const formatTime = (ts) => {
+      return new Date(ts).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    };
+
+    const updateUI = () => {
+      const { ateDate, tiredDate, ateLabel, tiredLabel } = getCurrentDates();
+
+      // Update labels
+      document.getElementById('ate-label').textContent = `Ate within 2hrs of bed?`;
+      document.getElementById('ate-date').textContent = `${ateLabel} — ${formatDateShort(ateDate)} night`;
+
+      document.getElementById('tired-label').textContent = `Tired this morning?`;
+      document.getElementById('tired-date').textContent = `${tiredLabel} — ${formatDateShort(tiredDate)}`;
+
+      // Update ate buttons
+      const ateData = getData('ate', ateDate);
+      const ateStatus = document.getElementById('ate-status');
+      const ateBtns = ateStatus.parentElement.querySelectorAll('.btn');
+      ateBtns.forEach(btn => btn.classList.remove('selected', 'faded'));
+      if (ateData) {
+        ateStatus.textContent = `Logged at ${formatTime(ateData.time)}`;
+        ateBtns.forEach(btn => {
+          const isYes = btn.classList.contains('yes');
+          if (isYes === ateData.value) btn.classList.add('selected');
+          else btn.classList.add('faded');
+        });
+      } else {
+        ateStatus.textContent = '';
+      }
+
+      // Update tired buttons
+      const tiredData = getData('tired', tiredDate);
+      const tiredStatus = document.getElementById('tired-status');
+      const tiredBtns = tiredStatus.parentElement.querySelectorAll('.btn');
+      tiredBtns.forEach(btn => btn.classList.remove('selected', 'faded'));
+      if (tiredData) {
+        tiredStatus.textContent = `Logged at ${formatTime(tiredData.time)}`;
+        tiredBtns.forEach(btn => {
+          const isYes = btn.classList.contains('yes');
+          if (isYes === tiredData.value) btn.classList.add('selected');
+          else btn.classList.add('faded');
+        });
+      } else {
+        tiredStatus.textContent = '';
+      }
+
+      // History - show sleep cycles (night → next morning)
+      const list = document.getElementById('history-list');
+      list.innerHTML = '';
+
+      // Start from yesterday's night (most recent complete cycle)
+      for (let i = 1; i <= 7; i++) {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        const nightDate = toLocalDateStr(d);
+        const morningDate = addDays(nightDate, 1);
+
+        const ate = getData('ate', nightDate);
+        const tired = getData('tired', morningDate);
+
+        const row = document.createElement('div');
+        row.className = 'history-row';
+        row.onclick = () => openModal(nightDate);
+        row.innerHTML = `
+          <div class="history-label">
+            ${formatWeekday(nightDate)} night → ${formatWeekday(morningDate)} morning
+            <small>${formatDateShort(nightDate)}</small>
+          </div>
+          <div class="dots">
+            <div class="dot-group">Ate <span class="dot ${ate ? (ate.value ? 'yes' : 'no') : 'none'}"></span></div>
+            <div class="dot-group">Tired <span class="dot ${tired ? (tired.value ? 'yes' : 'no') : 'none'}"></span></div>
+          </div>
+        `;
+        list.appendChild(row);
+      }
+
+      // Update sync status display
+      const token = localStorage.getItem('gh_token');
+      if (!token) {
+        updateSyncStatus('', 'Tap to sync');
+      }
+    };
+
+    const openModal = (nightDate) => {
+      editingNightDate = nightDate;
+      const morningDate = addDays(nightDate, 1);
+
+      document.getElementById('modal-title').textContent =
+        `${formatWeekday(nightDate)} night → ${formatWeekday(morningDate)} morning`;
+      document.getElementById('modal-subtitle').textContent = formatDateShort(nightDate);
+      document.getElementById('modal-ate-label').textContent =
+        `Ate late ${formatWeekday(nightDate)} night?`;
+      document.getElementById('modal-tired-label').textContent =
+        `Tired ${formatWeekday(morningDate)} morning?`;
+
+      document.getElementById('modal').classList.add('active');
+      updateModalUI();
+    };
+
+    const updateModalUI = () => {
+      if (!editingNightDate) return;
+      const morningDate = addDays(editingNightDate, 1);
+
+      const ateData = getData('ate', editingNightDate);
+      const yesAte = document.getElementById('modal-ate-yes');
+      const noAte = document.getElementById('modal-ate-no');
+      [yesAte, noAte].forEach(btn => btn.classList.remove('selected', 'faded'));
+      if (ateData) {
+        if (ateData.value) {
+          yesAte.classList.add('selected');
+          noAte.classList.add('faded');
+        } else {
+          noAte.classList.add('selected');
+          yesAte.classList.add('faded');
+        }
+      }
+
+      const tiredData = getData('tired', morningDate);
+      const yesTired = document.getElementById('modal-tired-yes');
+      const noTired = document.getElementById('modal-tired-no');
+      [yesTired, noTired].forEach(btn => btn.classList.remove('selected', 'faded'));
+      if (tiredData) {
+        if (tiredData.value) {
+          yesTired.classList.add('selected');
+          noTired.classList.add('faded');
+        } else {
+          noTired.classList.add('selected');
+          yesTired.classList.add('faded');
+        }
+      }
+    };
+
+    const closeModal = (e) => {
+      if (e && e.target !== e.currentTarget) return;
+      document.getElementById('modal').classList.remove('active');
+      editingNightDate = null;
+    };
+
+    const openSettings = () => {
+      const token = localStorage.getItem('gh_token');
+      document.getElementById('token-input').value = token || '';
+      document.getElementById('disconnect-btn').style.display = token ? 'block' : 'none';
+      document.getElementById('settings-modal').classList.add('active');
+    };
+
+    const closeSettings = (e) => {
+      if (e && e.target !== e.currentTarget) return;
+      document.getElementById('settings-modal').classList.remove('active');
+    };
+
+    const saveToken = async () => {
+      const token = document.getElementById('token-input').value.trim();
+      if (!token) return;
+      localStorage.setItem('gh_token', token);
+      closeSettings();
+      await syncToGist();
+    };
+
+    const disconnect = () => {
+      localStorage.removeItem('gh_token');
+      localStorage.removeItem('gh_gist_id');
+      updateSyncStatus('', 'Tap to sync');
+      closeSettings();
+    };
+
+    const exportData = async () => {
+      const data = getAllData();
+      const json = JSON.stringify(data, null, 2);
+      try {
+        await navigator.clipboard.writeText(json);
+        document.querySelector('.export-btn').textContent = 'Copied!';
+        setTimeout(() => {
+          document.querySelector('.export-btn').textContent = 'Copy all data';
+        }, 2000);
+      } catch (e) {
+        alert(json);
+      }
+    };
+
+    // Init
+    updateUI();
+    fetchFromGist();
+
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('sw.js');
+    }
+  </script>
+</body>
+</html>
