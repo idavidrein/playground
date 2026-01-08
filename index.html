@@ -73,7 +73,8 @@
       transition: background 0.2s;
     }
     .history-row:active { background: #1f2b4d; }
-    .history-row span { opacity: 0.7; }
+    .history-label { opacity: 0.7; }
+    .history-label small { display: block; font-size: 11px; opacity: 0.6; margin-top: 2px; }
     .dots { display: flex; align-items: center; gap: 12px; }
     .dot-group { display: flex; align-items: center; gap: 4px; font-size: 12px; opacity: 0.6; }
     .dot {
@@ -117,8 +118,11 @@
       padding: 24px;
       width: 100%;
       max-width: 340px;
+      max-height: 90vh;
+      overflow-y: auto;
     }
-    .modal h3 { font-size: 18px; margin-bottom: 20px; text-align: center; }
+    .modal h3 { font-size: 18px; margin-bottom: 8px; text-align: center; }
+    .modal .subtitle { font-size: 12px; opacity: 0.5; text-align: center; margin-bottom: 16px; }
     .modal .card { background: #0f2847; margin-bottom: 12px; padding: 16px; }
     .modal .btn { padding: 20px 0; font-size: 18px; }
     .modal .close-btn {
@@ -144,6 +148,7 @@
     }
     .modal input::placeholder { color: #ffffff50; }
     .modal p { font-size: 13px; opacity: 0.6; margin-bottom: 16px; line-height: 1.5; }
+    .modal a { color: #4ecca3; }
     .modal .danger-btn {
       background: transparent;
       border: 1px solid #e94560;
@@ -162,27 +167,27 @@
   </div>
 
   <div class="card">
-    <div class="label">Ate within 2hrs of bed?</div>
+    <div class="label" id="ate-label">Ate within 2hrs of bed?</div>
     <div class="date-label" id="ate-date"></div>
     <div class="buttons">
-      <button class="btn yes" onclick="record('ate', true)">Yes</button>
-      <button class="btn no" onclick="record('ate', false)">No</button>
+      <button class="btn yes" onclick="recordAte(true)">Yes</button>
+      <button class="btn no" onclick="recordAte(false)">No</button>
     </div>
     <div class="status" id="ate-status"></div>
   </div>
 
   <div class="card">
-    <div class="label">Tired this morning?</div>
+    <div class="label" id="tired-label">Tired this morning?</div>
     <div class="date-label" id="tired-date"></div>
     <div class="buttons">
-      <button class="btn yes" onclick="record('tired', true)">Yes</button>
-      <button class="btn no" onclick="record('tired', false)">No</button>
+      <button class="btn yes" onclick="recordTired(true)">Yes</button>
+      <button class="btn no" onclick="recordTired(false)">No</button>
     </div>
     <div class="status" id="tired-status"></div>
   </div>
 
   <div class="history">
-    <h2>Previous days (tap to edit)</h2>
+    <h2>Sleep cycles (tap to edit)</h2>
     <div id="history-list"></div>
   </div>
 
@@ -192,18 +197,19 @@
   <div class="modal-overlay" id="modal" onclick="closeModal(event)">
     <div class="modal" onclick="event.stopPropagation()">
       <h3 id="modal-title"></h3>
+      <div class="subtitle" id="modal-subtitle"></div>
       <div class="card">
-        <div class="label">Ate within 2hrs of bed?</div>
+        <div class="label" id="modal-ate-label">Ate within 2hrs of bed?</div>
         <div class="buttons">
-          <button class="btn yes" id="modal-ate-yes" onclick="recordModal('ate', true)">Yes</button>
-          <button class="btn no" id="modal-ate-no" onclick="recordModal('ate', false)">No</button>
+          <button class="btn yes" id="modal-ate-yes" onclick="recordModalAte(true)">Yes</button>
+          <button class="btn no" id="modal-ate-no" onclick="recordModalAte(false)">No</button>
         </div>
       </div>
       <div class="card">
-        <div class="label">Tired that morning?</div>
+        <div class="label" id="modal-tired-label">Tired next morning?</div>
         <div class="buttons">
-          <button class="btn yes" id="modal-tired-yes" onclick="recordModal('tired', true)">Yes</button>
-          <button class="btn no" id="modal-tired-no" onclick="recordModal('tired', false)">No</button>
+          <button class="btn yes" id="modal-tired-yes" onclick="recordModalTired(true)">Yes</button>
+          <button class="btn no" id="modal-tired-no" onclick="recordModalTired(false)">No</button>
         </div>
       </div>
       <button class="close-btn" onclick="closeModal()">Done</button>
@@ -214,7 +220,10 @@
   <div class="modal-overlay" id="settings-modal" onclick="closeSettings(event)">
     <div class="modal" onclick="event.stopPropagation()">
       <h3>Sync Settings</h3>
-      <p>Create a GitHub personal access token with "gist" scope at github.com/settings/tokens</p>
+      <p>
+        <a href="https://github.com/settings/tokens/new?scopes=gist&description=Sleep%20Tracker" target="_blank">Create a GitHub token</a>
+        (select only "gist" scope), then paste it below:
+      </p>
       <input type="password" id="token-input" placeholder="ghp_xxxxxxxxxxxx">
       <button class="close-btn" onclick="saveToken()">Save & Sync</button>
       <button class="close-btn danger-btn" id="disconnect-btn" onclick="disconnect()" style="display:none">Disconnect</button>
@@ -223,19 +232,37 @@
   </div>
 
   <script>
-    let editingDate = null;
+    // Each sleep cycle = one night + the following morning
+    // "Mon night → Tue morning" means: ate-Mon correlates with tired-Tue
+    // Data model: ate-YYYY-MM-DD = ate late on that night, tired-YYYY-MM-DD = tired that morning
+
+    let editingNightDate = null; // The night date for the cycle being edited
     let syncTimeout = null;
 
     const toLocalDateStr = (d) => {
       return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
     };
 
-    const getToday = () => toLocalDateStr(new Date());
+    const addDays = (dateStr, days) => {
+      const [y, m, d] = dateStr.split('-').map(Number);
+      const dt = new Date(y, m - 1, d);
+      dt.setDate(dt.getDate() + days);
+      return toLocalDateStr(dt);
+    };
 
-    const formatDate = (date) => {
+    const getToday = () => toLocalDateStr(new Date());
+    const getYesterday = () => addDays(getToday(), -1);
+
+    const formatDateShort = (date) => {
       const [y, m, d] = date.split('-').map(Number);
       const dt = new Date(y, m - 1, d);
       return dt.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+    };
+
+    const formatWeekday = (date) => {
+      const [y, m, d] = date.split('-').map(Number);
+      const dt = new Date(y, m - 1, d);
+      return dt.toLocaleDateString([], { weekday: 'short' });
     };
 
     const getAllData = () => {
@@ -275,7 +302,6 @@
 
       try {
         if (gistId) {
-          // Update existing gist
           const res = await fetch(`https://api.github.com/gists/${gistId}`, {
             method: 'PATCH',
             headers: {
@@ -288,7 +314,6 @@
           });
           if (!res.ok) throw new Error('Failed to update');
         } else {
-          // Create new gist
           const res = await fetch('https://api.github.com/gists', {
             method: 'POST',
             headers: {
@@ -340,18 +365,58 @@
       syncTimeout = setTimeout(syncToGist, 1000);
     };
 
-    const record = (type, value) => {
-      const date = getToday();
-      const key = `${type}-${date}`;
-      localStorage.setItem(key, JSON.stringify({ value, time: Date.now() }));
+    // Determine which dates to show based on current time
+    const getCurrentDates = () => {
+      const now = new Date();
+      const hour = now.getHours();
+      const today = getToday();
+      const yesterday = getYesterday();
+
+      // Before noon: you're logging about last night's sleep cycle
+      // After noon: you're logging about tonight's upcoming sleep cycle
+      if (hour < 12) {
+        return {
+          ateDate: yesterday,      // Last night
+          tiredDate: today,        // This morning
+          ateLabel: 'Last night',
+          tiredLabel: 'This morning'
+        };
+      } else {
+        return {
+          ateDate: today,          // Tonight
+          tiredDate: today,        // This morning (already happened)
+          ateLabel: 'Tonight',
+          tiredLabel: 'This morning'
+        };
+      }
+    };
+
+    const recordAte = (value) => {
+      const { ateDate } = getCurrentDates();
+      localStorage.setItem(`ate-${ateDate}`, JSON.stringify({ value, time: Date.now() }));
       updateUI();
       scheduleSync();
     };
 
-    const recordModal = (type, value) => {
-      if (!editingDate) return;
-      const key = `${type}-${editingDate}`;
-      localStorage.setItem(key, JSON.stringify({ value, time: Date.now() }));
+    const recordTired = (value) => {
+      const { tiredDate } = getCurrentDates();
+      localStorage.setItem(`tired-${tiredDate}`, JSON.stringify({ value, time: Date.now() }));
+      updateUI();
+      scheduleSync();
+    };
+
+    const recordModalAte = (value) => {
+      if (!editingNightDate) return;
+      localStorage.setItem(`ate-${editingNightDate}`, JSON.stringify({ value, time: Date.now() }));
+      updateModalUI();
+      updateUI();
+      scheduleSync();
+    };
+
+    const recordModalTired = (value) => {
+      if (!editingNightDate) return;
+      const morningDate = addDays(editingNightDate, 1);
+      localStorage.setItem(`tired-${morningDate}`, JSON.stringify({ value, time: Date.now() }));
       updateModalUI();
       updateUI();
       scheduleSync();
@@ -368,44 +433,69 @@
     };
 
     const updateUI = () => {
-      const today = getToday();
+      const { ateDate, tiredDate, ateLabel, tiredLabel } = getCurrentDates();
 
-      document.getElementById('ate-date').textContent = `For tonight — ${formatDate(today)}`;
-      document.getElementById('tired-date').textContent = `For this morning — ${formatDate(today)}`;
+      // Update labels
+      document.getElementById('ate-label').textContent = `Ate within 2hrs of bed?`;
+      document.getElementById('ate-date').textContent = `${ateLabel} — ${formatDateShort(ateDate)} night`;
 
-      ['ate', 'tired'].forEach(type => {
-        const data = getData(type, today);
-        const status = document.getElementById(`${type}-status`);
-        const btns = status.parentElement.querySelectorAll('.btn');
+      document.getElementById('tired-label').textContent = `Tired this morning?`;
+      document.getElementById('tired-date').textContent = `${tiredLabel} — ${formatDateShort(tiredDate)}`;
 
-        btns.forEach(btn => btn.classList.remove('selected', 'faded'));
+      // Update ate buttons
+      const ateData = getData('ate', ateDate);
+      const ateStatus = document.getElementById('ate-status');
+      const ateBtns = ateStatus.parentElement.querySelectorAll('.btn');
+      ateBtns.forEach(btn => btn.classList.remove('selected', 'faded'));
+      if (ateData) {
+        ateStatus.textContent = `Logged at ${formatTime(ateData.time)}`;
+        ateBtns.forEach(btn => {
+          const isYes = btn.classList.contains('yes');
+          if (isYes === ateData.value) btn.classList.add('selected');
+          else btn.classList.add('faded');
+        });
+      } else {
+        ateStatus.textContent = '';
+      }
 
-        if (data) {
-          status.textContent = `Logged at ${formatTime(data.time)}`;
-          btns.forEach(btn => {
-            const isYes = btn.classList.contains('yes');
-            if (isYes === data.value) btn.classList.add('selected');
-            else btn.classList.add('faded');
-          });
-        } else {
-          status.textContent = '';
-        }
-      });
+      // Update tired buttons
+      const tiredData = getData('tired', tiredDate);
+      const tiredStatus = document.getElementById('tired-status');
+      const tiredBtns = tiredStatus.parentElement.querySelectorAll('.btn');
+      tiredBtns.forEach(btn => btn.classList.remove('selected', 'faded'));
+      if (tiredData) {
+        tiredStatus.textContent = `Logged at ${formatTime(tiredData.time)}`;
+        tiredBtns.forEach(btn => {
+          const isYes = btn.classList.contains('yes');
+          if (isYes === tiredData.value) btn.classList.add('selected');
+          else btn.classList.add('faded');
+        });
+      } else {
+        tiredStatus.textContent = '';
+      }
 
+      // History - show sleep cycles (night → next morning)
       const list = document.getElementById('history-list');
       list.innerHTML = '';
+
+      // Start from yesterday's night (most recent complete cycle)
       for (let i = 1; i <= 7; i++) {
         const d = new Date();
         d.setDate(d.getDate() - i);
-        const date = toLocalDateStr(d);
-        const ate = getData('ate', date);
-        const tired = getData('tired', date);
+        const nightDate = toLocalDateStr(d);
+        const morningDate = addDays(nightDate, 1);
+
+        const ate = getData('ate', nightDate);
+        const tired = getData('tired', morningDate);
 
         const row = document.createElement('div');
         row.className = 'history-row';
-        row.onclick = () => openModal(date);
+        row.onclick = () => openModal(nightDate);
         row.innerHTML = `
-          <span>${formatDate(date)}</span>
+          <div class="history-label">
+            ${formatWeekday(nightDate)} night → ${formatWeekday(morningDate)} morning
+            <small>${formatDateShort(nightDate)}</small>
+          </div>
           <div class="dots">
             <div class="dot-group">Ate <span class="dot ${ate ? (ate.value ? 'yes' : 'no') : 'none'}"></span></div>
             <div class="dot-group">Tired <span class="dot ${tired ? (tired.value ? 'yes' : 'no') : 'none'}"></span></div>
@@ -421,39 +511,59 @@
       }
     };
 
-    const openModal = (date) => {
-      editingDate = date;
-      document.getElementById('modal-title').textContent = formatDate(date);
+    const openModal = (nightDate) => {
+      editingNightDate = nightDate;
+      const morningDate = addDays(nightDate, 1);
+
+      document.getElementById('modal-title').textContent =
+        `${formatWeekday(nightDate)} night → ${formatWeekday(morningDate)} morning`;
+      document.getElementById('modal-subtitle').textContent = formatDateShort(nightDate);
+      document.getElementById('modal-ate-label').textContent =
+        `Ate late ${formatWeekday(nightDate)} night?`;
+      document.getElementById('modal-tired-label').textContent =
+        `Tired ${formatWeekday(morningDate)} morning?`;
+
       document.getElementById('modal').classList.add('active');
       updateModalUI();
     };
 
     const updateModalUI = () => {
-      if (!editingDate) return;
+      if (!editingNightDate) return;
+      const morningDate = addDays(editingNightDate, 1);
 
-      ['ate', 'tired'].forEach(type => {
-        const data = getData(type, editingDate);
-        const yesBtn = document.getElementById(`modal-${type}-yes`);
-        const noBtn = document.getElementById(`modal-${type}-no`);
-
-        [yesBtn, noBtn].forEach(btn => btn.classList.remove('selected', 'faded'));
-
-        if (data) {
-          if (data.value) {
-            yesBtn.classList.add('selected');
-            noBtn.classList.add('faded');
-          } else {
-            noBtn.classList.add('selected');
-            yesBtn.classList.add('faded');
-          }
+      const ateData = getData('ate', editingNightDate);
+      const yesAte = document.getElementById('modal-ate-yes');
+      const noAte = document.getElementById('modal-ate-no');
+      [yesAte, noAte].forEach(btn => btn.classList.remove('selected', 'faded'));
+      if (ateData) {
+        if (ateData.value) {
+          yesAte.classList.add('selected');
+          noAte.classList.add('faded');
+        } else {
+          noAte.classList.add('selected');
+          yesAte.classList.add('faded');
         }
-      });
+      }
+
+      const tiredData = getData('tired', morningDate);
+      const yesTired = document.getElementById('modal-tired-yes');
+      const noTired = document.getElementById('modal-tired-no');
+      [yesTired, noTired].forEach(btn => btn.classList.remove('selected', 'faded'));
+      if (tiredData) {
+        if (tiredData.value) {
+          yesTired.classList.add('selected');
+          noTired.classList.add('faded');
+        } else {
+          noTired.classList.add('selected');
+          yesTired.classList.add('faded');
+        }
+      }
     };
 
     const closeModal = (e) => {
       if (e && e.target !== e.currentTarget) return;
       document.getElementById('modal').classList.remove('active');
-      editingDate = null;
+      editingNightDate = null;
     };
 
     const openSettings = () => {
