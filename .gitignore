@@ -214,4 +214,6 @@ segs/
 segs_v/
 work/
 # the final deliverables are large mp4s; keep them but not the draft
-out/owmv-draft.mp4
+out/*-with-music.mp4
+# final render artifacts are large; reproduce via pipeline, deliver out-of-band
+out/*.mp4

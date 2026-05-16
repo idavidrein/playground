@@ -6,8 +6,9 @@ Forest & Ram Dass (8:22, *Music for Psychedelic Therapy*, 2021).
 
 ## What's here
 
-- `out/owmv-final.mp4` — the finished **silent** picture cut (~8:25, 1920×1080)
-- `out/owmv-shortform-9x16.mp4` — a ~60s vertical clip (the campfire / "Connection" section)
+- `out/owmv-final.mp4` — the finished **silent** picture cut (505s / 8:25, 1920×1080;
+  built ~3s long so the 8:22 song is the master clock when muxed)
+- `out/owmv-shortform-9x16.mp4` — a 65s vertical clip (the campfire / "Connection" section)
 - `mux_audio.sh` — one-line script to lay the song under the picture
 - `pipeline/make_video.py` — the full edit pipeline (reproducible)
 - `PLAN.md` — the creative storyboard / movement map

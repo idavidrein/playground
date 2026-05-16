@@ -14,11 +14,15 @@ SEGS = f"{ROOT}/segs_v"
 OUT  = f"{ROOT}/out"
 Q    = os.environ.get("QUALITY", "draft")
 if Q == "final":
-    W, H, PRESET, CRF = 1080, 1920, "slow", "18"
+    W, H, PRESET, CRF = 1080, 1920, "medium", "19"
 else:
     W, H, PRESET, CRF = 540, 960, "ultrafast", "26"
 FPS = 30
 XF  = 1.0
+# vertical crop of the 16:9 source, then upscale ONCE (~1.4x) for KB headroom
+CROPW = (int(H * 9 / 16) // 2) * 2          # 9:16 width from full-height crop
+PREW  = (int(W * 1.4) // 2) * 2
+PREH  = (int(H * 1.4) // 2) * 2
 os.makedirs(SEGS, exist_ok=True); os.makedirs(OUT, exist_ok=True)
 
 def run(cmd):
@@ -35,14 +39,17 @@ def fill_vert(extra=""):
 
 def kb(idx, ts, dur, zexpr):
     out=f"{SEGS}/s_{idx:02d}.mp4"; png=f"{SEGS}/s_{idx:02d}.png"
+    fr=int(round(dur*FPS))
+    # extract a frame, center-crop to 9:16, upscale ONCE -> single still
     run(["ffmpeg","-hide_banner","-loglevel","error","-y","-ss",f"{ts}",
-         "-i",RAW,"-vframes","1","-q:v","2",png])
-    fr=int(dur*FPS)
-    vf=(f"scale=2160:3840:force_original_aspect_ratio=increase,crop=2160:3840,"
-        f"zoompan=z='{zexpr}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
+         "-i",RAW,"-vframes","1","-vf",
+         f"crop={CROPW}:ih:(iw-{CROPW})/2:0,"
+         f"scale={PREW}:{PREH}:flags=lanczos","-q:v","2",png])
+    # feed exactly ONE image; zoompan emits fr frames; cap with -frames:v
+    vf=(f"zoompan=z='{zexpr}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
         f"d={fr}:s={W}x{H}:fps={FPS},{GRADE},format=yuv420p")
-    run(["ffmpeg","-hide_banner","-loglevel","error","-y","-loop","1",
-         "-t",f"{dur:.2f}","-i",png,"-vf",vf,"-r",str(FPS),
+    run(["ffmpeg","-hide_banner","-loglevel","error","-y","-i",png,
+         "-vf",vf,"-frames:v",str(fr),"-r",str(FPS),"-an",
          "-c:v","libx264","-preset",PRESET,"-crf",CRF,"-pix_fmt","yuv420p",out])
     return out,dur
 
@@ -56,12 +63,12 @@ def mo(idx, ss, span, dur):
 
 ZIN="min(zoom+0.0006,1.18)"; ZOUT="if(eq(on,1),1.18,max(zoom-0.0006,1.0))"
 EDL=[
- ("kb",64.0,12.0,ZIN),    # dawn village
- ("kb",11.0,12.0,ZIN),    # campfire embers
- ("mo",9.0,3.0,9.0),      # campfire live slow-mo
- ("kb",18.5,13.0,ZIN),    # Hearthian playing banjo by fire
- ("kb",15.0,12.0,ZIN),    # marshmallow over the fire
- ("kb",11.0,11.0,ZOUT),   # embers, pull out — close
+ ("kb",11.0,12.0,ZIN),    # campfire embers — warm open
+ ("mo",9.0,3.0,10.0),     # campfire live slow-mo
+ ("kb",18.5,13.0,ZIN),    # Hearthian playing banjo by fire — connection
+ ("kb",15.0,12.0,ZIN),    # marshmallow over the fire — intimate
+ ("kb",18.5,11.0,ZOUT),   # banjo Hearthian — pull back
+ ("kb",11.0,12.0,ZOUT),   # embers — close
 ]
 
 def main():
@@ -77,7 +84,9 @@ def main():
         off=acc-XF; lbl=f"x{i}"
         fc.append(f"[{prev}][{i}:v]xfade=transition=fade:duration={XF}:offset={off:.3f}[{lbl}]")
         prev=lbl; acc=acc+durs[i]-XF
-    fc.append(f"[{prev}]format=yuv420p[v]")
+    total=acc
+    fc.append(f"[{prev}]fade=t=in:st=0:d=1.5,"
+              f"fade=t=out:st={total-2.0:.2f}:d=2.0,format=yuv420p[v]")
     out=f"{OUT}/owmv-shortform-9x16.mp4"
     run(["ffmpeg","-hide_banner","-loglevel","error","-y"]+inp+
         ["-filter_complex",";".join(fc),"-map","[v]","-c:v","libx264",

@@ -17,7 +17,7 @@ OUT  = f"{ROOT}/out"
 Q    = os.environ.get("QUALITY", "draft")
 
 if Q == "final":
-    W, H, PRESET, CRF, FPS = 1920, 1080, "slow", "18", 30
+    W, H, PRESET, CRF, FPS = 1920, 1080, "medium", "19", 30
 else:
     W, H, PRESET, CRF, FPS = 960, 540, "ultrafast", "26", 30
 
