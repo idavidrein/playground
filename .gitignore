@@ -205,3 +205,13 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# --- Outer Wilds music video project ---
+# copyrighted source trailers (not redistributed)
+raw/
+# large render intermediates
+segs/
+segs_v/
+work/
+# the final deliverables are large mp4s; keep them but not the draft
+out/owmv-draft.mp4
